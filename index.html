@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>D3 Test</title>
+    <style>
+      .axis path,
+      .axis line {
+        fill: none;
+        stroke: black;
+        shape-rendering: crispEdges;
+      }
+
+      .axis text {
+        font-family: sans-serif;
+        font-size: 11px;
+      }
+
+      .datapoint:hover {
+        fill: black;
+      }
+
+      .button {
+        border-top: 1px solid #96d1f8;
+        background: #65a9d7;
+        padding: 5px 10px;
+        -webkit-border-radius: 40px;
+        -moz-border-radius: 40px;
+        border-radius: 40px;
+        -webkit-box-shadow: rgba(0,0,0,1) 0 1px 0;
+        -moz-box-shadow: rgba(0,0,0,1) 0 1px 0;
+        box-shadow: rgba(0,0,0,1) 0 1px 0;
+        text-shadow: rgba(0,0,0,.4) 0 1px 0;
+        color: white;
+        font-size: 14px;
+        font-family: 'Lucida Grande', Helvetica, Arial, Sans-Serif;
+        text-decoration: none;
+        vertical-align: middle;
+        width: 200px;
+      }
+      .button:hover {
+        border-top-color: #28597a;
+        background: #28597a;
+        color: #ccc;
+      }
+      .button:active {
+        background: #1b435e;
+      }
+    </style>
+    <script type="text/javascript" src="d3/d3.js"></script>
+  </head>
+  <body>
+    <h1 align="center">Running Shoe Analysis 1.0</h1>
+    <script>
+      var dataCSV = [];
+      d3.csv("data/runLogsSorted.csv", function(d,i) {
+          dataCSV[i] = d;
+      }, function(error, rows) {
+          console.log(rows);
+      });
+
+      var shoeColors = {
+        "Reebok":"#1b9e77",
+        "Saucony Stabil CS2":"#d95f02",
+        "Altra Lone Peak 1.5":"#7570b3",
+        "Altra Lone Peak 2.0":"#e7298a",
+        "Altra Instinct 2.0":"#66a61e",
+        "Saucony Kinvara 5":"#e6ab02",
+        "No name":"#a6761d"
+      }
+
+      var shoeStates = {
+        "Reebok":true,
+        "Saucony Stabil CS2":true,
+        "Altra Lone Peak 1.5":true,
+        "Altra Lone Peak 2.0":true,
+        "Altra Instinct 2.0":true,
+        "Saucony Kinvara 5":true,
+        "No name":true
+      }
+    </script>
+
+    <script type="text/javascript">
+
+      var w = 800;
+      var h = 500;
+      var padding = 20;
+
+      var xScale;
+      var yScale;
+
+      var currentPlot;
+
+      var dataset = [];
+      var speedBoundariesLow = {"slow":0, "moderate":0, "fast":0};
+      var speedBoundariesHigh = {"slow":0, "moderate":0, "fast":0};
+      var distanceBoundariesLow = {"very short":0, "short":0, "medium":0, "long":0}
+      var distanceBoundariesHigh = {"very short":0, "short":0, "medium":0, "long":0}
+
+      // create the dataset, compute shoe zones, update scales and speed/distance boundaries
+      function populate() {
+        dataset = []
+        for (var i = 0; i < dataCSV.length; i++) {
+          dataset.push([ Math.round(dataCSV[i]["Distance (mi)"] * 10) / 10, +dataCSV[i]["Avg speed (mph)"], dataCSV[i]["Shoes"] ]);
+        };
+
+        // update scales
+        xScale = d3.scale.linear()
+                     .domain([0, d3.max(dataset, function(d) { return d[0]; })])
+                     .range([padding, w - padding]);
+        yScale = d3.scale.linear()
+                     .domain([0, d3.max(dataset, function(d) { return d[1]; })])
+                     .range([h - padding, padding]);
+
+        // update zone boundaries. TODO: These are arbitrary and fixed right now, but should be tuned to the dataset
+        speedBoundariesLow["slow"]=0;
+        speedBoundariesLow["moderate"]=5;
+        speedBoundariesLow["fast"]=7;
+        speedBoundariesHigh["slow"]=5;
+        speedBoundariesHigh["moderate"]=7;
+        speedBoundariesHigh["fast"]=d3.max(dataset, function(d) { return d[1]; });
+
+        distanceBoundariesLow["very short"]=0;
+        distanceBoundariesLow["short"]=3;
+        distanceBoundariesLow["medium"]=8;
+        distanceBoundariesLow["long"]=13;
+        distanceBoundariesHigh["very short"]=3;
+        distanceBoundariesHigh["short"]=8;
+        distanceBoundariesHigh["medium"]=13;
+        distanceBoundariesHigh["long"]=d3.max(dataset, function(d) { return d[0]; });
+
+        // compute shoe zones
+        computeShoeZones();
+
+        // update buttons
+        updateButtons();
+      }
+
+      function setCanvas() {
+        // if a plot already exists, overwrite it
+        if(!d3.select("body").select("svg").empty()) {
+          d3.select("body").select("svg").remove();
+        }
+
+        var svg = d3.select("body")
+                    .append("svg")
+                    .attr("width", w)
+                    .attr("height", h);
+
+        var xAxis = d3.svg.axis()
+                    .scale(xScale)
+                    .orient("bottom")
+                    .ticks(5);
+        var yAxis = d3.svg.axis()
+                    .scale(yScale)
+                    .orient("left")
+                    .ticks(5);
+
+        svg.append("g")
+            .attr("class", "axis")
+            .attr("transform", "translate(0," + (h - padding) + ")")
+            .call(xAxis)
+            .append("text")
+            .attr("class", "label")
+            .attr("x", w-padding)
+            .attr("y", -6)
+            .style("text-anchor", "end")
+            .text("Distance (mi)");
+
+        svg.append("g")
+            .attr("class", "axis")
+            .attr("transform", "translate(" + padding + ", 0)")
+            .call(yAxis)
+            .append("text")
+            .attr("class", "label")
+            .attr("transform", "rotate(-90)")
+            .attr("x", -20)
+            .attr("y", 6)
+            .attr("dy", ".71em")
+            .style("text-anchor", "end")
+            .text("Speed (mph)");
+
+        return svg;
+      }
+
+      // create the basic full scatterplot
+      function makeScatterPlot() {
+        var svg = setCanvas();
+
+        svg.selectAll("circle")
+              .data(dataset)
+              .enter()
+              .append("circle")
+              .attr("cx", function(d) {
+                return xScale(d[0]);
+              })
+              .attr("cy", function(d) {
+                return yScale(d[1]);
+              })
+              .attr("r", 5)
+              .attr("class", "datapoint")
+              .attr("fill","white");
+
+        updateShoeColors();
+        currentPlot = "scatter";
+      }
+
+      function makeZonePlot() {
+        var svg = setCanvas();
+
+        updateZoneColors();
+        currentPlot = "zone";
+      }
+
+      // get the X coordinate at which to place the zone
+      function getZoneX(distance) {
+        return xScale(distanceBoundariesLow[distance]);
+      }
+      // get the Y coordinate at which to place the zone
+      function getZoneY(speed) {
+        return yScale(speedBoundariesHigh[speed]);
+      }
+      // get the width of the zone
+      function getZoneWidth(distance) {
+        return xScale(distanceBoundariesHigh[distance]) - xScale(distanceBoundariesLow[distance]);
+      }
+      // get the height of the zone
+      function getZoneHeight(speed) {
+        return yScale(speedBoundariesLow[speed]) - yScale(speedBoundariesHigh[speed]);
+      }
+
+      // get the right zone color for given zone, considering visible shoes. Defaults to gray
+      // TODO: function also assumes for now that each shoe has at least one activity on it
+      function getZoneColor(speed, distance) {
+        var shoes = Object.keys(shoeStates);
+        var maxProportion = 0.0;
+        var maxShoe = "";
+        for (var i = 0; i < shoes.length; i++) {
+          var thisProportion = shoeZones[speed][distance][shoes[i]]/shoeTotals[shoes[i]];
+          // count a shoe only if it is chosen to be visible
+          if((thisProportion > maxProportion) && (shoeStates[shoes[i]])) {
+            maxProportion = thisProportion;
+            maxShoe = shoes[i];
+          }
+        };
+        if(maxShoe != "") return shoeColors[maxShoe];
+        else return "gray";
+      }
+
+      // gets shoe color from shoe name
+      var getShoeColors = function(d) {
+        return shoeColors[ d[2] ];
+      }
+
+      // checks shoe state and returns corresponding opacity
+      var getShoeOpacity = function(d) {
+        if( shoeStates[ d[2] ] ) return 1;
+        else return 0;
+      }
+
+      // updates shoe colors using color and state information
+      var updateShoeColors = function() {
+        d3.selectAll("circle").transition().duration(1000).attr("fill",getShoeColors).attr("opacity",getShoeOpacity);
+      }
+
+      // updates zone colors using state information
+      var updateZoneColors = function() {
+        var svg = d3.select("body").select("svg");
+        for(var speed in shoeZones) {
+          for(distance in shoeZones[speed]) {
+            svg.append("rect")
+               .attr("x",getZoneX(distance))
+               .attr("y",getZoneY(speed))
+               .attr("width",getZoneWidth(distance))
+               .attr("height",getZoneHeight(speed))
+               .attr("opacity",1)
+               .attr("fill","white")
+               .transition()
+               .attr("fill",getZoneColor(speed,distance))
+               .attr("stroke","black")
+               .attr("stroke-width","1px");
+          }
+        }
+      }
+
+      // update buttons using color and state information
+      var updateButtons = function() {
+        var shoes = Object.keys(shoeStates);
+        for (var i = 0; i < shoes.length; i++) {
+          var shoeButton = document.getElementById(shoes[i]);
+          if(shoeStates[ shoes[i] ]) {
+            shoeButton.style.background = "navy";
+          } else {
+            shoeButton.style.background = "#65a9d7";
+          }
+        };
+      }
+
+      // toggles visibility of the selected shoe
+      var toggleShoe = function(shoe) {
+        shoeStates[shoe] = !shoeStates[shoe];
+        updateButtons();
+        if(currentPlot == "scatter") updateShoeColors(); else updateZoneColors();
+      }
+
+      // shows all shoes
+      var showAllShoes = function() {
+        var shoes = Object.keys(shoeStates);
+        for (var i = 0; i < shoes.length; i++) {
+          shoeStates[ shoes[i] ] = true;
+        };
+        updateButtons();
+        if(currentPlot == "scatter") updateShoeColors(); else updateZoneColors();
+      }
+
+      // hides all shoes
+      var hideAllShoes = function() {
+        var shoes = Object.keys(shoeStates);
+        for (var i = 0; i < shoes.length; i++) {
+          shoeStates[ shoes[i] ] = false;
+        };
+        updateButtons();
+        if(currentPlot == "scatter") updateShoeColors(); else updateZoneColors();
+      }
+
+      // compute which is the favourite shoe for a given (speed, distance zone)
+      // speed zones: slow <=5 < moderate <= 7 < fast
+      // distance zones: very short <= 3 < short <= 8 < medium <= 13 < long
+      var shoeZones = {
+        "slow":{
+          "very short":"",
+          "short":"",
+          "medium":"",
+          "long":""
+        },
+        "moderate":{
+          "very short":"",
+          "short":"",
+          "medium":"",
+          "long":""
+        },
+        "fast":{
+          "very short":"",
+          "short":"",
+          "medium":"",
+          "long":""
+        }
+      }
+
+      var shoeTotals = Object();
+
+      var computeShoeZones = function() {
+        var shoes = Object.keys(shoeStates);
+        // create object to hold total activities for each shoe
+        for (var i = 0; i < shoes.length; i++) {
+          shoeTotals[shoes[i]] = 0;
+        };
+
+        // create objects to hold total activities for each shoe per zone
+        for(var speed in shoeZones) {
+          for(var distance in shoeZones[speed]) {
+            var zoneTotals = Object();
+            for (var i = 0; i < shoes.length; i++) {
+              zoneTotals[shoes[i]] = 0;
+            };
+            shoeZones[speed][distance] = zoneTotals;
+          }
+        }
+
+        for (var i = 0; i < dataset.length; i++) {
+          var currShoe = dataset[i][2];
+          shoeZones[ getSpeedRange(dataset[i][1]) ][ getDistanceRange(dataset[i][0]) ][ currShoe ]++;
+          shoeTotals[currShoe]++;
+        };
+      }
+
+      var getSpeedRange = function(v) {
+        if(v <= speedBoundariesHigh["slow"]) return "slow";
+        else if(v <= speedBoundariesHigh["moderate"]) return "moderate";
+        else return "fast";
+      }
+
+      var getDistanceRange = function(dist) {
+        if(dist <= distanceBoundariesHigh["very short"]) return "very short";
+        else if(dist <= distanceBoundariesHigh["short"]) return "short";
+        else if(dist <= distanceBoundariesHigh["medium"]) return "medium";
+        else return "long";
+      }
+
+    </script>
+    <br>
+    <div style="float:left; width:200px">
+      <p align="center">Actions</p>
+      <button type="button" class="button" onclick='populate()'>Populate Dataset</button><br>
+      <button type="button" class="button" onclick='makeScatterPlot()'>View Scatter Plot</button><br>
+      <button type="button" class="button" onclick='makeZonePlot()'>View Zone Plot</button><br>
+      <br><br>
+      <h3 align="center">Instructions</h3>
+      <p>Please click on "Populate Dataset" above to load speed vs distance data. Then choose which plot you wish to see by clicking on the corresponding buttons. Remember to populate the dataset, otherwise the plot will not appear. Use buttons on the right side of the screen to select/unselect shoes.</p>
+      <p>Future versions will allow the user to load more complex data. The current plot only shows speed (mph) on the Y axis and distance (miles) on the X axis.</p>
+    </div>
+
+    <div id="filter buttons" style="float:right">
+      <p align="center">Shoe Filters</p>
+      <table>
+        <tr>
+          <td style="background-color:#7570b3; width:40px"></td>
+          <td>
+            <button type="button" class="button" id="Altra Lone Peak 1.5" onclick='toggleShoe("Altra Lone Peak 1.5")'>Altra Lone Peak 1.5</button><br>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#e7298a; width:40px"></td>
+          <td>
+            <button type="button" class="button" id="Altra Lone Peak 2.0" onclick='toggleShoe("Altra Lone Peak 2.0")'>Altra Lone Peak 2.0</button><br>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#66a61e; width:40px"></td>
+          <td>
+            <button type="button" class="button" id="Altra Instinct 2.0" onclick='toggleShoe("Altra Instinct 2.0")'>Altra Instinct 2.0</button><br>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#e6ab02; width:40px"></td>
+          <td>
+            <button type="button" class="button" id="Saucony Kinvara 5" onclick='toggleShoe("Saucony Kinvara 5")'>Saucony Kinvara 5</button><br>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#d95f02; width:40px"></td>
+          <td>
+            <button type="button" class="button" id="Saucony Stabil CS2" onclick='toggleShoe("Saucony Stabil CS2")'>Saucony Stabil CS2</button><br>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#1b9e77; width:40px"></td>
+          <td>
+            <button type="button" class="button" id="Reebok" onclick='toggleShoe("Reebok")'>Reebok</button><br>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#a6761d; width:40px"></td>
+          <td>
+            <button type="button" class="button" id="No name" onclick='toggleShoe("No name")'>No name</button><br>
+          </td>
+        </tr>
+      </table>
+
+      <table>
+        <tr>
+          <td style="background-color:white; width:40px"></td>
+          <td>
+            <button type="button" class="button" onclick='showAllShoes()'>Show All!</button><br>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:white; width:40px"></td>
+          <td>
+            <button type="button" class="button" onclick='hideAllShoes()'>Hide All!</button><br>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>
